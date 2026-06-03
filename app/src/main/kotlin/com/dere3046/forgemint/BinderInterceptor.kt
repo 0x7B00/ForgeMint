@@ -143,9 +143,7 @@ open class BinderInterceptor : Binder() {
             val data = Parcel.obtain()
             val reply = Parcel.obtain()
             try {
-                data.writeInterfaceToken(DUMMY_DESCRIPTOR)
                 if (binder.transact(BACKDOOR_CODE, data, reply, 0)) {
-                    reply.readException()
                     return reply.readStrongBinder()
                 }
             } catch (_: Exception) {
@@ -160,7 +158,6 @@ open class BinderInterceptor : Binder() {
             val data = Parcel.obtain()
             val reply = Parcel.obtain()
             try {
-                data.writeInterfaceToken(DUMMY_DESCRIPTOR)
                 data.writeStrongBinder(target)
                 data.writeStrongBinder(interceptor)
                 backdoor.transact(REGISTER_CODE, data, reply, 0)
@@ -176,7 +173,6 @@ open class BinderInterceptor : Binder() {
             val data = Parcel.obtain()
             val reply = Parcel.obtain()
             try {
-                data.writeInterfaceToken(DUMMY_DESCRIPTOR)
                 data.writeStrongBinder(target)
                 backdoor.transact(UNREGISTER_CODE, data, reply, 0)
             } catch (e: Exception) {
