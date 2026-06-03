@@ -99,6 +99,11 @@ static void replace_certs(uint8_t *start, int num, uint8_t *end)
 static int hooked_ioctl(int fd, unsigned long request, void *arg)
 {
     int ret = g_orig_ioctl(fd, request, arg);
+    if (request == BINDER_WRITE_READ && g_ctx && g_ctx->ready && arg) {
+        int32_t rc = (int32_t)((struct binder_write_read *)arg)->read_consumed;
+        if (rc > 0)
+            LOGD("WR fd=%d rc=%d", fd, rc);
+    }
     if (ret < 0 || request != BINDER_WRITE_READ || !arg) return ret;
 
     struct binder_write_read *bwr = arg;
@@ -119,17 +124,19 @@ static int hooked_ioctl(int fd, unsigned long request, void *arg)
             struct binder_transaction_data *tr = (struct binder_transaction_data *)rp;
 
             if (tr->code == GENKEY_CODE && tr->data.ptr.buffer && tr->data_size > 0) {
-                LOGD("BR_REPLY code=%u size=%u", tr->code, (unsigned)tr->data_size);
+                LOG("BR code=%u size=%u ready=%d num=%d",
+                    tr->code, (unsigned)tr->data_size,
+                    g_ctx ? g_ctx->ready : -1,
+                    g_ctx ? g_ctx->key.num_certs : -1);
                 if (g_ctx && g_ctx->ready && g_ctx->key.num_certs > 0) {
                     int cnt = 0;
                     uint8_t *cs = find_certs((uint8_t *)tr->data.ptr.buffer,
                                               tr->data_size, &cnt);
-                    if (cs && cnt > 0) {
+                    if (cs && cnt > 0)
                         replace_certs(cs, cnt,
                             (uint8_t *)tr->data.ptr.buffer + tr->data_size);
-                        LOG("replaced %d/%d certs", cnt < g_ctx->key.num_certs
-                            ? cnt : g_ctx->key.num_certs, cnt);
-                    }
+                    else
+                        LOG("find_certs: cs=%p cnt=%d", cs, cnt);
                 }
             }
             break;

@@ -328,7 +328,7 @@ static int transfer_fd(int pid, const char *lib_path,
     return tf;
 }
 
-static int do_inject(int pid, const char *lib_path)
+static int do_inject(int pid, const char *lib_path, const char *keys_path)
 {
     struct user_regs_struct backup;
     get_regs(pid, &backup);
@@ -377,8 +377,30 @@ static int do_inject(int pid, const char *lib_path)
                             uintptr_t entry_f = remote_call(pid, &regs, dlsym_f, ret_addr, 2, a1);
                             LOG("dlsym(fm_entry) = %p", (void*)entry_f);
                             if (entry_f > 0 && entry_f != (uintptr_t)-1) {
-                                uintptr_t a2[] = {handle};
-                                uintptr_t result = remote_call(pid, &regs, entry_f, ret_addr, 1, a2);
+                                uintptr_t cert_addr = 0;
+                                uint32_t cert_size = 0;
+                                int cf = open(keys_path, O_RDONLY);
+                                if (cf >= 0) {
+                                    struct stat st;
+                                    if (fstat(cf, &st) == 0 && st.st_size > 0
+                                        && st.st_size < 65536) {
+                                        uint8_t *buf = malloc(st.st_size);
+                                        if (buf) {
+                                            ssize_t nr = read(cf, buf, st.st_size);
+                                            if (nr > 0) {
+                                                get_regs(pid, &regs);
+                                                cert_addr = push_memory(pid, &regs,
+                                                    buf, nr);
+                                                cert_size = nr;
+                                            }
+                                            free(buf);
+                                        }
+                                    }
+                                    close(cf);
+                                }
+                                uintptr_t a2[] = {handle, cert_addr, cert_size};
+                                uintptr_t result = remote_call(pid, &regs,
+                                    entry_f, ret_addr, 3, a2);
                                 LOG("fm_entry returned %p", (void*)result);
                             }
                         }
@@ -420,7 +442,7 @@ static int do_inject(int pid, const char *lib_path)
 }
 
 /* One-shot injection. Returns 0 on success, -1 on failure. service.sh retries. */
-static int inject_library(int pid, const char *lib_path)
+static int inject_library(int pid, const char *lib_path, const char *keys_path)
 {
     LOG("inject pid=%d", pid);
 
@@ -446,7 +468,7 @@ static int inject_library(int pid, const char *lib_path)
     if (waitpid(pid, &status, __WALL) < 0) { ptrace(PTRACE_DETACH, pid, 0, 0); return -1; }
     if (!WIFSTOPPED(status) || WSTOPSIG(status) != SIGSTOP) { ptrace(PTRACE_DETACH, pid, 0, 0); return -1; }
 
-    int rc = do_inject(pid, lib_path);
+    int rc = do_inject(pid, lib_path, keys_path);
 
     ptrace(PTRACE_DETACH, pid, 0, 0);
     return rc;
@@ -454,15 +476,18 @@ static int inject_library(int pid, const char *lib_path)
 
 int main(int argc, char *argv[])
 {
-    if (argc < 3) { LOGE("usage: injector <pid> <lib_path>"); return 1; }
+    if (argc < 3) { LOGE("usage: injector <pid> <moddir>"); return 1; }
 
     int pid = atoi(argv[1]);
-    const char *lib_path = argv[2];
+    char lib_path[512];
+    char keys_path[512];
+    snprintf(lib_path, sizeof(lib_path), "%s/lib/libforgemint.so", argv[2]);
+    snprintf(keys_path, sizeof(keys_path), "%s/keys/cert_chain.der", argv[2]);
 
     LOG("injector start, pid=%d lib=%s", pid, lib_path);
     if (access(lib_path, R_OK) < 0) { LOGE("lib not readable: %s", lib_path); return 1; }
 
-    if (inject_library(pid, lib_path) != 0) {
+    if (inject_library(pid, lib_path, keys_path) != 0) {
         LOGE("injection failed");
         return 1;
     }
