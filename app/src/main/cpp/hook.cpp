@@ -65,6 +65,7 @@ static bool g_stub_ready = false;
 status_t BinderInterceptor::onTransact(uint32_t code, const Parcel &data,
                                         Parcel *reply, uint32_t flags)
 {
+    LOG("BinderInterceptor onTransact code=0x%x flags=%u", code, flags);
     switch (code) {
     case REGISTER_CODE: {
         sp<IBinder> target, callback;
@@ -92,6 +93,8 @@ status_t BinderInterceptor::onTransact(uint32_t code, const Parcel &data,
 status_t BinderStub::onTransact(uint32_t code, const Parcel &data,
                                  Parcel *reply, uint32_t flags)
 {
+    LOG("BinderStub onTransact code=0x%x flags=%u", code, flags);
+
     ThreadTxInfo info = {};
     bool found = false;
     {
@@ -106,8 +109,11 @@ status_t BinderStub::onTransact(uint32_t code, const Parcel &data,
         }
     }
 
+    LOG("BinderStub found=%d info.code=0x%x info.target=%p", found, info.code, info.target.get());
+
     if (!found || !info.target) {
         if (code == BACKDOOR_CODE && reply) {
+            LOG("BinderStub writing backdoor binder");
             reply->writeStrongBinder(g_interceptor);
             return OK;
         }
@@ -209,6 +215,7 @@ static int hooked_ioctl(int fd, unsigned long request, void *arg)
 
             BBinder *target = (BBinder *)tr->cookie;
             wp<IBinder> wp_target = target;
+            LOG("BR code=0x%x cookie=%llx uid=%d pid=%d", tr->code, tr->cookie, tr->sender_euid, tr->sender_pid);
 
             bool hijack = false;
             ThreadTxInfo info = {};
@@ -216,6 +223,7 @@ static int hooked_ioctl(int fd, unsigned long request, void *arg)
             info.code  = tr->code;
 
             if (tr->code == BACKDOOR_CODE) {
+                LOG("BACKDOOR matched, hijacking tx_id=%llu", (unsigned long long)info.tx_id);
                 hijack = true;
                 info.target = nullptr;
                 info.callback = nullptr;
