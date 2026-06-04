@@ -217,12 +217,18 @@ class KeyMintInterceptor(
 
     private fun parseParams(data: Parcel): GenerateKeyParams? {
         return try {
+            Logger.d("parseParams: dataSize=${data.dataSize()} dataPos=${data.dataPosition()}")
             data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
+            Logger.d("parseParams: after enforce dataPos=${data.dataPosition()}")
             val descriptor = data.readTypedObject(KeyDescriptor.CREATOR)
                 ?: return null
+            Logger.d("parseParams: after desc1 dataPos=${data.dataPosition()} domain=${descriptor.domain} alias=${descriptor.alias}")
             val attestationKeyDescriptor = data.readTypedObject(KeyDescriptor.CREATOR)
+            Logger.d("parseParams: after desc2 dataPos=${data.dataPosition()} attestKey=${attestationKeyDescriptor?.alias}")
             val params = data.createTypedArray(KeyParameter.CREATOR) ?: return null
-            data.readInt()
+            Logger.d("parseParams: after params dataPos=${data.dataPosition()} params.len=${params.size}")
+            val flags = data.readInt()
+            Logger.d("parseParams: after flags dataPos=${data.dataPosition()} flags=$flags")
             GenerateKeyParams(KeyMintAttestation(params), descriptor, attestationKeyDescriptor)
         } catch (e: Exception) {
             Logger.e("Failed to parse generateKey params", e)
