@@ -217,7 +217,13 @@ class KeyMintInterceptor(
 
     private fun parseParams(data: Parcel): GenerateKeyParams? {
         return try {
-            Logger.d("parseParams: dataSize=${data.dataSize()} dataPos=${data.dataPosition()}")
+            val dsize = data.dataSize()
+            Logger.d("parseParams: dataSize=${dsize} dataPos=${data.dataPosition()}")
+            val raw = ByteArray(minOf(dsize, 200))
+            data.marshall()?.copyInto(raw, 0, 0, raw.size)
+            Logger.d("parseParams raw[0..200]=${raw.toHex()}")
+            data.setDataPosition(0)
+
             data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
             Logger.d("parseParams: after enforce dataPos=${data.dataPosition()}")
             val descriptor = data.readTypedObject(KeyDescriptor.CREATOR)
@@ -227,8 +233,17 @@ class KeyMintInterceptor(
             Logger.d("parseParams: after desc2 dataPos=${data.dataPosition()} attestKey=${attestationKeyDescriptor?.alias}")
             val params = data.createTypedArray(KeyParameter.CREATOR) ?: return null
             Logger.d("parseParams: after params dataPos=${data.dataPosition()} params.len=${params.size}")
+            params.forEachIndexed { i, kp -> Logger.d("parseParams: kp[$i] tag=${kp.tag} value=${kp.value?.javaClass?.name}") }
             val flags = data.readInt()
             Logger.d("parseParams: after flags dataPos=${data.dataPosition()} flags=$flags")
+
+            if (params.isNotEmpty()) {
+                val len = minOf(dsize - 176, 400)
+                val raw176 = ByteArray(len)
+                data.marshall()?.copyInto(raw176, 0, 176, 176 + len)
+                Logger.d("parseParams raw[176..532]=${raw176.toHex()}")
+            }
+
             GenerateKeyParams(KeyMintAttestation(params), descriptor, attestationKeyDescriptor)
         } catch (e: Exception) {
             Logger.e("Failed to parse generateKey params", e)
