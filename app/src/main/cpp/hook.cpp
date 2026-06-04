@@ -245,7 +245,7 @@ static int hooked_ioctl(int fd, unsigned long request, ...)
                 info.callback = nullptr;
             } else if (tr->sender_euid == 0) {
                 tr->sender_euid = 1000;
-                LOG("Spoofed UID 0 → 1000 for code=0x%x", tr->code);
+                LOGD("Spoofed UID 0 → 1000 for code=0x%x", tr->code);
             } else {
                 RefBase::weakref_type *weak_ref = reinterpret_cast<RefBase::weakref_type *>(tr->target.ptr);
                 if (weak_ref && weak_ref->attemptIncStrong(nullptr)) {

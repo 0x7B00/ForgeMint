@@ -321,21 +321,47 @@ class KeyMintInterceptor(
         attestKeyDescriptor: KeyDescriptor?,
         uid: Int,
     ): TransactionResult? {
-        val keybox = KeyboxReader.loadKeybox(params.algorithm) ?: return null
-        if (keybox.certificates.isEmpty()) return null
+        Logger.i("tryGenerateSoftwareKey algo=${params.algorithm} keySize=${params.keySize} ecCurve=${params.ecCurve} uid=$uid")
+
+        val keybox = KeyboxReader.loadKeybox(params.algorithm)
+        if (keybox == null) {
+            Logger.w("GenKeyFailed: keybox not found for algo=${params.algorithm}")
+            return null
+        }
+        if (keybox.certificates.isEmpty()) {
+            Logger.w("GenKeyFailed: keybox certificates empty")
+            return null
+        }
 
         val signerKeyPair = if (attestKeyDescriptor != null) {
-            val attestEntry = StateManager.lookup(uid, attestKeyDescriptor.alias ?: return null)
+            val alias = attestKeyDescriptor.alias
+            if (alias == null) {
+                Logger.w("GenKeyFailed: attestKeyDescriptor alias is null")
+                return null
+            }
+            val attestEntry = StateManager.lookup(uid, alias)
                 ?: StateManager.lookupByNspace(uid, attestKeyDescriptor.nspace)
-            attestEntry?.keyPair
+            if (attestEntry == null) {
+                Logger.w("GenKeyFailed: attest key not found alias=$alias")
+                return null
+            }
+            attestEntry.keyPair
         } else null
 
-        val keyPair = CertificateBuilder.generateKeyPair(params) ?: return null
+        val keyPair = CertificateBuilder.generateKeyPair(params)
+        if (keyPair == null) {
+            Logger.w("GenKeyFailed: KeyPair generation failed algo=${params.algorithm} keySize=${params.keySize}")
+            return null
+        }
 
         val chain = CertificateBuilder.generateCertificateChain(
             keyPair, keybox, params, uid, securityLevel,
             signerKeyPair,
-        ) ?: return null
+        )
+        if (chain == null) {
+            Logger.w("GenKeyFailed: cert chain generation failed")
+            return null
+        }
 
         val nspace = SecureRandom().nextLong()
         val descriptor = KeyDescriptor().apply {

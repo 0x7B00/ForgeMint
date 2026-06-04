@@ -26,11 +26,7 @@ object App {
         prepareEnvironment()
         setupProviders()
         ConfigManager.initialize()
-        ConfigManager.checkTeeStatus()
         initBootProperties()
-
-        DeviceAttestationService.cachedData
-        Logger.i("TEE attestation cached=${DeviceAttestationService.cachedData != null}")
 
         while (true) {
             try {
@@ -44,6 +40,10 @@ object App {
 
                 if (connectInterceptor(ksBinder)) {
                     retryCount = 0
+                    Logger.i("Interceptors registered, checking TEE status")
+                    ConfigManager.checkTeeStatus()
+                    DeviceAttestationService.cachedData
+                    Logger.i("TEE attestation cached=${DeviceAttestationService.cachedData != null}")
                     break
                 }
             } catch (e: Exception) {
