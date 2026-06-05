@@ -274,6 +274,9 @@ class KeyMintInterceptor(
         if (params.rsaPublicExponent != null) {
             addAuth(Tag.RSA_PUBLIC_EXPONENT, securityLevel) { longInteger = params.rsaPublicExponent.toLong() }
         }
+        for (d in params.rsaOaepMgfDigest) {
+            addAuth(Tag.RSA_OAEP_MGF_DIGEST, securityLevel) { digest = d }
+        }
         if (params.noAuthRequired != null) {
             addAuth(Tag.NO_AUTH_REQUIRED, securityLevel) { boolValue = params.noAuthRequired }
         }
@@ -310,6 +313,18 @@ class KeyMintInterceptor(
         }
         if (params.unlockedDeviceRequired == true) {
             addAuth(Tag.UNLOCKED_DEVICE_REQUIRED, SecurityLevel.KEYSTORE) { boolValue = true }
+        }
+        if (params.activeDateTime != null) {
+            addAuth(Tag.ACTIVE_DATETIME, SecurityLevel.KEYSTORE) { dateTime = params.activeDateTime.time }
+        }
+        if (params.originationExpireDateTime != null) {
+            addAuth(Tag.ORIGINATION_EXPIRE_DATETIME, SecurityLevel.KEYSTORE) { dateTime = params.originationExpireDateTime.time }
+        }
+        if (params.usageExpireDateTime != null) {
+            addAuth(Tag.USAGE_EXPIRE_DATETIME, SecurityLevel.KEYSTORE) { dateTime = params.usageExpireDateTime.time }
+        }
+        if (params.maxBootLevel != null) {
+            addAuth(Tag.MAX_BOOT_LEVEL, SecurityLevel.KEYSTORE) { integer = params.maxBootLevel }
         }
 
         return list.toTypedArray()

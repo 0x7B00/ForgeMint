@@ -47,6 +47,11 @@ data class KeyMintAttestation(
     val trustedConfirmationRequired: Boolean?,
     val maxUsesPerBoot: Int?,
     val unlockedDeviceRequired: Boolean?,
+    val rsaOaepMgfDigest: List<Int>,
+    val activeDateTime: Date?,
+    val originationExpireDateTime: Date?,
+    val usageExpireDateTime: Date?,
+    val maxBootLevel: Int?,
 ) {
     constructor(params: Array<KeyParameter>) : this(
         algorithm = params.findAlgorithm(Tag.ALGORITHM) ?: 0,
@@ -84,6 +89,11 @@ data class KeyMintAttestation(
         trustedConfirmationRequired = params.findBoolean(Tag.TRUSTED_CONFIRMATION_REQUIRED),
         maxUsesPerBoot = params.findInteger(Tag.MAX_USES_PER_BOOT),
         unlockedDeviceRequired = params.findBoolean(Tag.UNLOCKED_DEVICE_REQUIRED),
+        rsaOaepMgfDigest = params.findAllDigests(Tag.RSA_OAEP_MGF_DIGEST),
+        activeDateTime = params.findDate(Tag.ACTIVE_DATETIME),
+        originationExpireDateTime = params.findDate(Tag.ORIGINATION_EXPIRE_DATETIME),
+        usageExpireDateTime = params.findDate(Tag.USAGE_EXPIRE_DATETIME),
+        maxBootLevel = params.findInteger(Tag.MAX_BOOT_LEVEL),
     )
 
     val isAttestKey: Boolean
