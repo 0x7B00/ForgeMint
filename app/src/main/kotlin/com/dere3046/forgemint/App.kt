@@ -1,5 +1,6 @@
 package com.dere3046.forgemint
 
+import android.os.Build
 import android.os.IBinder
 import android.os.Looper
 import android.os.ServiceManager
@@ -10,9 +11,14 @@ import org.bouncycastle.jce.provider.BouncyCastleProvider
 
 object App {
 
-    private const val KEYSTORE_SERVICE = "android.system.keystore2.IKeystoreService/default"
+    private const val KEYSTORE2_SERVICE = "android.system.keystore2.IKeystoreService/default"
+    private const val KEYSTORE1_SERVICE = "android.security.keystore"
     private const val RETRY_DELAY_MS = 1000L
     private const val MAX_RETRIES = 5
+
+    private val isOldKeystore by lazy { Build.VERSION.SDK_INT in Build.VERSION_CODES.Q..Build.VERSION_CODES.R }
+    private val keystoreServiceName by lazy { if (isOldKeystore) KEYSTORE1_SERVICE else KEYSTORE2_SERVICE }
+    private val processName by lazy { if (isOldKeystore) "keystore" else "keystore2" }
 
     private lateinit var modDir: String
     private var retryCount = 0
@@ -24,7 +30,7 @@ object App {
 
         val debugFile = java.io.File("/data/adb/forgemint/debug")
         Logger.setMode(debugFile.exists())
-        Logger.i("ForgeMint daemon starting (moddir=$modDir, mode=${if (Logger.useLogcat) "logcat" else "kmsg"})")
+        Logger.i("ForgeMint daemon starting (moddir=$modDir, sdk=${Build.VERSION.SDK_INT}, mode=${if (Logger.useLogcat) "logcat" else "kmsg"})")
         prepareEnvironment()
         setupProviders()
         ConfigManager.initialize()
@@ -32,7 +38,7 @@ object App {
 
         while (true) {
             try {
-                val ksBinder = ServiceManager.getService(KEYSTORE_SERVICE)
+                val ksBinder = ServiceManager.getService(keystoreServiceName)
                 if (ksBinder == null) {
                     Thread.sleep(RETRY_DELAY_MS)
                     continue
@@ -91,11 +97,9 @@ object App {
     }
 
     private fun connectInterceptor(ksBinder: IBinder): Boolean {
-        val ksService = IKeystoreService.Stub.asInterface(ksBinder)
-
         val backdoor = BinderInterceptor.getBackdoor(ksBinder)
         if (backdoor != null) {
-            registerAll(ksService, ksBinder, backdoor)
+            registerAll(ksBinder, backdoor)
             return true
         }
 
@@ -111,7 +115,7 @@ object App {
         Thread.sleep(500)
         val backdoor2 = BinderInterceptor.getBackdoor(ksBinder)
         if (backdoor2 != null) {
-            registerAll(ksService, ksBinder, backdoor2)
+            registerAll(ksBinder, backdoor2)
             return true
         }
 
@@ -130,10 +134,10 @@ object App {
     private fun performInjection(): Boolean {
         return try {
             val pid = Runtime.getRuntime()
-                .exec(arrayOf("/system/bin/pidof", "keystore2"))
+                .exec(arrayOf("/system/bin/pidof", processName))
                 .inputStream.bufferedReader().readText().trim()
             if (pid.isEmpty()) {
-                Logger.w("keystore2 not running")
+                Logger.w("$processName not running")
                 return false
             }
 
@@ -154,7 +158,23 @@ object App {
         }
     }
 
-    private fun registerAll(ksService: IKeystoreService, ksBinder: IBinder, backdoor: IBinder) {
+    private fun registerAll(ksBinder: IBinder, backdoor: IBinder) {
+        if (isOldKeystore) {
+            registerOld(ksBinder, backdoor)
+        } else {
+            registerKeystore2(ksBinder, backdoor)
+        }
+    }
+
+    private fun registerOld(ksBinder: IBinder, backdoor: IBinder) {
+        val interceptor = KeystoreInterceptor(ksBinder, backdoor)
+        BinderInterceptor.register(backdoor, ksBinder, interceptor)
+        Logger.i("Registered KeystoreInterceptor (legacy)")
+    }
+
+    private fun registerKeystore2(ksBinder: IBinder, backdoor: IBinder) {
+        val ksService = IKeystoreService.Stub.asInterface(ksBinder)
+
         val ksInterceptor = Keystore2Interceptor()
         BinderInterceptor.register(backdoor, ksBinder, ksInterceptor)
         Logger.i("Registered Keystore2Interceptor")
@@ -196,25 +216,15 @@ object App {
         Security.addProvider(BouncyCastleProvider())
         Logger.i("BouncyCastle provider installed")
 
+        val providerClass = if (isOldKeystore)
+            "android.security.keystore.AndroidKeyStoreProvider"
+        else
+            "android.security.keystore2.AndroidKeyStoreProvider"
         try {
-            Class.forName("android.security.keystore2.AndroidKeyStoreProvider")
-                .getMethod("install")
-                .invoke(null)
-            Logger.i("AndroidKeyStoreProvider installed")
+            Class.forName(providerClass).getMethod("install").invoke(null)
+            Logger.i("$providerClass installed")
         } catch (e: Exception) {
-            Logger.w("AndroidKeyStoreProvider install skipped: ${e.message}")
+            Logger.w("$providerClass install skipped: ${e.message}")
         }
-    }
-
-    private fun cleanupDiagnosticFiles() {
-        try {
-            val tmpDir = java.io.File("/data/local/tmp")
-            tmpDir.listFiles()?.filter {
-                it.name.startsWith("forge-") && it.extension == "bin"
-            }?.forEach {
-                it.delete()
-                Logger.d("Cleaned up leftover: ${it.name}")
-            }
-        } catch (_: Exception) {}
     }
 }
