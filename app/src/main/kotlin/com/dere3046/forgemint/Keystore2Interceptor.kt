@@ -275,7 +275,9 @@ class Keystore2Interceptor : BinderInterceptor() {
 
     companion object {
         val LIST_ENTRIES_TRANSACTION: Int by lazy { resolveCode("TRANSACTION_listEntries") }
-        val LIST_ENTRIES_BATCHED_TRANSACTION: Int by lazy { resolveCode("TRANSACTION_listEntriesBatched") }
+        val LIST_ENTRIES_BATCHED_TRANSACTION: Int? by lazy {
+            if (android.os.Build.VERSION.SDK_INT >= 34) resolveCode("TRANSACTION_listEntriesBatched") else null
+        }
         val GET_KEY_ENTRY_TRANSACTION: Int by lazy { resolveCode("TRANSACTION_getKeyEntry") }
         val DELETE_KEY_TRANSACTION: Int by lazy { resolveCode("TRANSACTION_deleteKey") }
         val UPDATE_SUBCOMPONENT_TRANSACTION: Int by lazy { resolveCode("TRANSACTION_updateSubcomponent") }

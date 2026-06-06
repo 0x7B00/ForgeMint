@@ -124,12 +124,10 @@ object AttestationPatcher {
 
         val patchedExtension = createPatchedAttestationExtension(parsed, uid)
 
-        @Suppress("UNCHECKED_CAST")
-        val extOids = originalLeafHolder.extensions.extensionOIDs as java.util.Enumeration<org.bouncycastle.asn1.ASN1ObjectIdentifier>
-        for (oid in extOids) {
+        originalLeafHolder.extensions.extensionOIDs.forEach {
             builder.addExtension(
-                if (oid.id == AttestationConstants.ATTESTATION_OID) patchedExtension
-                else originalLeafHolder.getExtension(oid)
+                if (it.id == AttestationConstants.ATTESTATION_OID) patchedExtension
+                else originalLeafHolder.getExtension(it)
             )
         }
 
