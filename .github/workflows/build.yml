@@ -42,8 +42,11 @@ jobs:
           chmod +x gradlew
           ./gradlew zipDebug zipRelease
 
-      - name: list outputs
-        run: ls -lh out/
+      - name: upload artifacts
+        uses: actions/upload-artifact@v5
+        with:
+          name: module-zip
+          path: out/*.zip
 
       - name: publish release
         if: startsWith(github.ref, 'refs/tags/v')
