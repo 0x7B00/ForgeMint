@@ -39,6 +39,11 @@ class Keystore2Interceptor : BinderInterceptor() {
         callingPid: Int,
         data: Parcel,
     ): TransactionResult {
+        if (code == GET_KEY_ENTRY_TRANSACTION) {
+            val grantResult = tryHandleGrantGetKeyEntry(data, callingUid)
+            if (grantResult != null) return grantResult
+        }
+
         if (shouldSkip(callingUid)) {
             return TransactionResult.ContinueAndSkipPost
         }
@@ -153,6 +158,18 @@ class Keystore2Interceptor : BinderInterceptor() {
         }
     }
 
+    private fun tryHandleGrantGetKeyEntry(data: Parcel, uid: Int): TransactionResult? {
+        val savedPos = data.dataPosition()
+        return try {
+            data.enforceInterface(IKeystoreService.DESCRIPTOR)
+            val descriptor = data.readTypedObject(KeyDescriptor.CREATOR)
+            if (descriptor != null && descriptor.domain == Domain.GRANT) {
+                handleGrantDomainGetKeyEntry(descriptor, uid)
+            } else null
+        } catch (_: Exception) { null }
+        finally { data.setDataPosition(savedPos) }
+    }
+
     private fun handleGrantDomainGetKeyEntry(descriptor: KeyDescriptor, uid: Int): TransactionResult {
         val grantResult = StateManager.resolveGrant(descriptor.nspace, uid)
         if (grantResult == null) {
@@ -163,14 +180,27 @@ class Keystore2Interceptor : BinderInterceptor() {
         }
 
         val entry = StateManager.lookup(grantResult.uid, grantResult.alias)
-            ?: return replyKeystoreError(7)
-
-        val accessVector = StateManager.getGrantAccessVector(descriptor.nspace) ?: 0
-        if ((accessVector and 0x4) == 0) {
-            return replyKeystoreError(6)
+        if (entry != null) {
+            val accessVector = StateManager.getGrantAccessVector(descriptor.nspace) ?: 0
+            if ((accessVector and 0x4) == 0) {
+                return replyKeystoreError(6)
+            }
+            return buildGetKeyEntryResponse(entry)
         }
 
-        return buildGetKeyEntryResponse(entry)
+        val teeResp = StateManager.lookupTeeResponse(grantResult.uid, descriptor.nspace)
+        if (teeResp != null) {
+            val accessVector = StateManager.getGrantAccessVector(descriptor.nspace) ?: 0
+            if ((accessVector and 0x4) == 0) {
+                return replyKeystoreError(6)
+            }
+            val reply = Parcel.obtain()
+            reply.writeNoException()
+            reply.writeTypedObject(teeResp, 0)
+            return TransactionResult.OverrideReply(reply)
+        }
+
+        return replyKeystoreError(7)
     }
 
     private fun handleGetKeyEntryByMetadata(descriptor: KeyDescriptor, uid: Int): TransactionResult? {

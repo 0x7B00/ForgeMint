@@ -152,6 +152,7 @@ class KeyMintInterceptor(
             if (!ConfigManager.shouldPatch(callingUid)) {
                 val levelBinder = android.system.keystore2.IKeystoreSecurityLevel.Stub.asInterface(originalBinder)
                 StateManager.cacheTeeResponse(keyId, metadata, levelBinder)
+                Logger.d("Cached teeResponse for HAL key (non-patch) alias=${keyDescriptor.alias} uid=$callingUid chainSize=${originalChain.size}")
                 return TransactionResult.Skip
             }
 
@@ -256,7 +257,7 @@ class KeyMintInterceptor(
                 return replyKeymintError(authResult.errorCode ?: -1000) ?: TransactionResult.Skip
             }
 
-            Logger.d("createOperation for generated key alias=${entry.alias} nspace=${keyDescriptor.nspace} algo=${parsedParams.algorithm} purpose=${parsedParams.purpose.firstOrNull()}")
+            Logger.d("createOperation for generated key alias=${entry.alias} nspace=${keyDescriptor.nspace} algo=${parsedParams.algorithm} purpose=${parsedParams.purpose.firstOrNull()} secLevel=$securityLevel")
 
             val operation = SoftwareOperation(txId, entry.keyPair, entry.secretKey, parsedParams, securityLevel, uid)
             StateManager.acquireOp(uid, operation, securityLevel)
@@ -484,7 +485,7 @@ class KeyMintInterceptor(
                 CertificateBuilder.generateCertificateChain(
                     keyPair, keybox, params, uid, securityLevel,
                     signerKeyPair, attestKeyCert,
-                )
+                ).also { Logger.d("Software gen: using keybox chain for UID=$uid") }
             keybox != null && ConfigManager.isFallbackEnabled -> {
                 Logger.w("keybox configured but certificates empty, using self-signed fallback for UID=$uid")
                 CertificateBuilder.generateFallbackChain(keyPair, params, uid, securityLevel)
