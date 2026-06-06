@@ -139,7 +139,7 @@ static uintptr_t find_module_base(int pid, const char *suffix)
     if (!f) return 0;
     char line[1024];
     while (fgets(line, sizeof(line), f)) {
-        uintptr_t start, end, offset;
+        unsigned long start, end, offset;
         char perms[8], lib[256];
         lib[0] = '\0';
         sscanf(line, "%lx-%lx %7s %lx %*s %*s %255s", &start, &end, perms, &offset, lib);
@@ -200,7 +200,7 @@ static uintptr_t remote_post_call(int pid, struct user_regs_struct *regs,
         return (uintptr_t)-1;
     if (get_regs(pid, regs) < 0) return (uintptr_t)-1;
     if ((uintptr_t)REG_PC(regs) != ret_addr) {
-        LOG("post_call stop at %lx sig=%d", (uintptr_t)REG_PC(regs), WSTOPSIG(status));
+        LOG("post_call stop at %lx sig=%d", (unsigned long)(uintptr_t)REG_PC(regs), WSTOPSIG(status));
         return (uintptr_t)-1;
     }
     return REG_RET(regs);
