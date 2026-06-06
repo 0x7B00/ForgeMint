@@ -42,7 +42,9 @@ class KeyMintInterceptor(
     private val recentStrongBoxOps = java.util.concurrent.ConcurrentHashMap<Int, java.util.concurrent.ConcurrentLinkedDeque<Long>>()
 
     private fun enforceStrongBoxLimitThenContinue(uid: Int): TransactionResult {
-        if (securityLevel != android.hardware.security.keymint.SecurityLevel.STRONGBOX) {
+        val isSb = securityLevel == android.hardware.security.keymint.SecurityLevel.STRONGBOX
+        Logger.w("StrongBox: enforceSB uid=$uid secLev=$securityLevel isSB=$isSb keyNotInCache")
+        if (!isSb) {
             return TransactionResult.Continue
         }
         val timestamps = recentStrongBoxOps.computeIfAbsent(uid) { java.util.concurrent.ConcurrentLinkedDeque() }
@@ -53,6 +55,7 @@ class KeyMintInterceptor(
             return replyKeymintError(-29) ?: TransactionResult.Skip
         }
         timestamps.addLast(System.nanoTime())
+        Logger.w("StrongBox: op allowed for uid=$uid windowOps=${timestamps.size}")
         return TransactionResult.Continue
     }
 
@@ -130,9 +133,15 @@ class KeyMintInterceptor(
         reply: Parcel?,
         resultCode: Int,
     ): TransactionResult {
-        if (resultCode != 0 || reply == null) return TransactionResult.Skip
+        if (resultCode != 0 || reply == null) {
+            if (code == GENERATE_KEY_TRANSACTION) {
+                Logger.w("PostGen: skipped resultCode=$resultCode reply=${reply != null} uid=$callingUid")
+            }
+            return TransactionResult.Skip
+        }
 
         if (code == GENERATE_KEY_TRANSACTION) {
+            Logger.w("PostGen: entering handlePostGenerateKey uid=$callingUid")
             return handlePostGenerateKey(callingUid, data, reply)
         }
 
