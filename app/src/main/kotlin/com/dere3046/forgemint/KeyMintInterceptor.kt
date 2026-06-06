@@ -198,8 +198,16 @@ class KeyMintInterceptor(
                 ?: return TransactionResult.Continue
 
             val params = data.createTypedArray(KeyParameter.CREATOR) ?: return TransactionResult.Continue
-            val parsedParams = KeyMintAttestation(params)
+            var parsedParams = KeyMintAttestation(params)
             data.readBoolean()
+
+            if (parsedParams.algorithm == 0) {
+                parsedParams = parsedParams.copy(algorithm = when (entry.keyPair.private.algorithm) {
+                    "EC", "ECDSA" -> android.hardware.security.keymint.Algorithm.EC
+                    "RSA" -> android.hardware.security.keymint.Algorithm.RSA
+                    else -> parsedParams.algorithm
+                })
+            }
 
             Logger.i("createOperation for generated key alias=${entry.alias} nspace=${keyDescriptor.nspace}")
 
@@ -354,6 +362,16 @@ class KeyMintInterceptor(
         return entry != null
     }
 
+    private fun replyKeymintError(errorCode: Int, message: String): TransactionResult? {
+        val override = Parcel.obtain()
+        override.writeInt(1)
+        override.writeString("android.os.ServiceSpecificException")
+        override.writeInt(errorCode)
+        override.writeString(message)
+        override.writeInt(0)
+        return TransactionResult.OverrideReply(override)
+    }
+
     private fun handleImportKey(uid: Int, data: Parcel): TransactionResult {
         try {
             data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
@@ -375,6 +393,11 @@ class KeyMintInterceptor(
         Logger.i("tryGenerateSoftwareKey algo=${params.algorithm} keySize=${params.keySize} ecCurve=${params.ecCurve} uid=$uid")
 
         val startNanos = System.nanoTime()
+
+        if (params.attestationChallenge != null && params.attestationChallenge.size > AttestationConstants.CHALLENGE_LENGTH_LIMIT) {
+            Logger.w("Challenge exceeds length limit (${params.attestationChallenge.size})")
+            return replyKeymintError(-21, "Challenge exceeds length limit")
+        }
 
         val keybox = KeyboxReader.loadKeybox(params.algorithm)
         if (keybox == null) {

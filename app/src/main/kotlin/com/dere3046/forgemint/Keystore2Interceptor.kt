@@ -144,7 +144,9 @@ class Keystore2Interceptor : BinderInterceptor() {
 
             val response = reply.readTypedObject(KeyEntryResponse.CREATOR) ?: return TransactionResult.Skip
 
-            val authorizations = response.metadata.authorizations
+            val metadata = response.metadata ?: return TransactionResult.Skip
+
+            val authorizations = metadata.authorizations
             val parsedParams = KeyMintAttestation(
                 authorizations?.map { it.keyParameter }?.toTypedArray() ?: emptyArray()
             )
@@ -158,7 +160,7 @@ class Keystore2Interceptor : BinderInterceptor() {
                 return handleAttestKeyOverride(uid, keyDescriptor, response, parsedParams)
             }
 
-            val originalChain = CertificateHelper.getCertificateChain(response.metadata) ?: return TransactionResult.Skip
+            val originalChain = CertificateHelper.getCertificateChain(metadata) ?: return TransactionResult.Skip
 
             if (originalChain.size <= 1) {
                 Logger.d("getKeyEntry POST: chain too short for alias=${keyDescriptor.alias}")
@@ -178,7 +180,7 @@ class Keystore2Interceptor : BinderInterceptor() {
                 StateManager.cachePatchedChain(keyId, patchedChain)
             }
 
-            CertificateHelper.updateCertificateChain(uid, response.metadata, patchedChain)
+            CertificateHelper.updateCertificateChain(uid, metadata, patchedChain)
                 .onFailure { e -> Logger.e("updateCertificateChain failed", e) }
 
             val override = Parcel.obtain()
