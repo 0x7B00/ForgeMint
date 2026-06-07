@@ -263,6 +263,7 @@ class Keystore2Interceptor : BinderInterceptor() {
                 else null
 
             if (entry == null) return TransactionResult.ContinueAndSkipPost
+            if (android.os.Build.VERSION.SDK_INT < 36) return replyKeystoreError(6)
 
             StateManager.revokeGrantForOwner(StateManager.KeyIdentifier(uid, entry.alias), granteeUid)
 
@@ -322,7 +323,9 @@ class Keystore2Interceptor : BinderInterceptor() {
     }
 
     private fun handlePostGetKeyEntry(uid: Int, data: Parcel, reply: Parcel): TransactionResult {
+        val savedReplyPos = reply.dataPosition()
         try {
+            reply.setDataPosition(0)
             data.enforceInterface(IKeystoreService.DESCRIPTOR)
             val keyDescriptor = data.readTypedObject(KeyDescriptor.CREATOR) ?: return TransactionResult.Skip
 
@@ -373,6 +376,7 @@ class Keystore2Interceptor : BinderInterceptor() {
 
             CertificateHelper.updateCertificateChain(uid, metadata, patchedChain)
                 .onFailure { e -> Logger.e("updateCertificateChain failed", e) }
+            metadata.authorizations = AttestationPatcher.patchAuthorizations(metadata.authorizations, uid)
 
             val override = Parcel.obtain()
             override.writeNoException()
@@ -380,8 +384,10 @@ class Keystore2Interceptor : BinderInterceptor() {
             return TransactionResult.OverrideReply(override)
         } catch (e: Exception) {
             Logger.e("getKeyEntry POST patch failed", e)
-            return TransactionResult.Skip
+        } finally {
+            reply.setDataPosition(savedReplyPos)
         }
+        return TransactionResult.Skip
     }
 
     private fun handleAttestKeyOverride(uid: Int, keyDescriptor: KeyDescriptor, response: KeyEntryResponse, params: KeyMintAttestation): TransactionResult {

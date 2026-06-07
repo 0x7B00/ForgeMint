@@ -39,6 +39,10 @@ import org.bouncycastle.cert.X509v3CertificateBuilder
 import org.bouncycastle.cert.jcajce.JcaX509CertificateConverter
 import org.bouncycastle.jce.provider.BouncyCastleProvider
 import org.bouncycastle.operator.jcajce.JcaContentSignerBuilder
+import android.hardware.security.keymint.KeyParameter
+import android.hardware.security.keymint.KeyParameterValue
+import android.hardware.security.keymint.Tag
+import android.system.keystore2.Authorization
 
 object AttestationPatcher {
 
@@ -230,4 +234,34 @@ object AttestationPatcher {
         val teeEnforcedMap: MutableMap<Int, ASN1TaggedObject>,
         val rootOfTrust: ASN1Encodable?,
     )
+
+    fun patchAuthorizations(
+        authorizations: Array<Authorization>?,
+        callingUid: Int,
+    ): Array<Authorization>? {
+        if (authorizations == null) return null
+
+        val osPatch = AttestationBuilder.getPatchLevel(callingUid)
+        val vendorBootPatch = AttestationBuilder.getPatchLevelLong(callingUid)
+
+        return authorizations.map { auth ->
+            val replacement = when (auth.keyParameter.tag) {
+                Tag.OS_PATCHLEVEL -> osPatch
+                Tag.VENDOR_PATCHLEVEL -> vendorBootPatch
+                Tag.BOOT_PATCHLEVEL -> vendorBootPatch
+                else -> null
+            }
+            if (replacement != null) {
+                Authorization().apply {
+                    keyParameter = KeyParameter().apply {
+                        tag = auth.keyParameter.tag
+                        value = KeyParameterValue.integer(replacement)
+                    }
+                    securityLevel = auth.securityLevel
+                }
+            } else {
+                auth
+            }
+        }.toTypedArray()
+    }
 }

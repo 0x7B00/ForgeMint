@@ -105,7 +105,6 @@ class KeyMintInterceptor(
             (genParams.attestationKeyDescriptor != null && isKnownAttestationKey(callingUid, genParams.attestationKeyDescriptor))
 
         if (needsSoftwareGen) {
-            Logger.w("genKey dispatch: isAttestKey=${params.isAttestKey} shouldGen=${ConfigManager.shouldGenerate(callingUid)} shouldPatch=${ConfigManager.shouldPatch(callingUid)} uid=$callingUid algo=${params.algorithm} alias=${genParams.descriptor.alias} nspace=${genParams.descriptor.nspace} ecCurve=${params.ecCurve}")
             val result = tryGenerateSoftwareKey(params, genParams.descriptor, genParams.attestationKeyDescriptor, callingUid)
             if (result != null) {
                 Logger.i("Software key generated for UID=$callingUid")
@@ -151,7 +150,7 @@ class KeyMintInterceptor(
         }
 
         if (code == IMPORT_KEY_TRANSACTION) {
-            return handlePostImportKey(callingUid, data)
+            return handlePostImportKey(callingUid, data, reply)
         }
 
         return TransactionResult.Skip
@@ -193,6 +192,7 @@ class KeyMintInterceptor(
 
             CertificateHelper.updateCertificateChain(callingUid, metadata, patchedChain)
                 .onFailure { e -> Logger.e("updateCertificateChain failed", e) }
+            metadata.authorizations = AttestationPatcher.patchAuthorizations(metadata.authorizations, callingUid)
 
             val override = Parcel.obtain()
             override.writeNoException()
@@ -243,14 +243,40 @@ class KeyMintInterceptor(
         return TransactionResult.Skip
     }
 
-    private fun handlePostImportKey(uid: Int, data: Parcel): TransactionResult {
+    private fun handlePostImportKey(uid: Int, data: Parcel, reply: Parcel): TransactionResult {
         try {
             data.enforceInterface(IKeystoreSecurityLevel.DESCRIPTOR)
             val keyDescriptor = data.readTypedObject(KeyDescriptor.CREATOR) ?: return TransactionResult.Skip
-            val alias = keyDescriptor.alias
-            if (alias != null && StateManager.lookup(uid, alias) != null) {
+            val alias = keyDescriptor.alias ?: return TransactionResult.Skip
+            val keyId = StateManager.KeyIdentifier(uid, alias)
+            if (StateManager.lookup(uid, alias) != null) {
                 Logger.d("importKey alias=$alias UID=$uid → cleaning up generated key")
                 StateManager.remove(uid, alias)
+            }
+
+            if (!ConfigManager.shouldPatch(uid)) return TransactionResult.Skip
+
+            val savedReplyPos = reply.dataPosition()
+            try {
+                reply.setDataPosition(0)
+                val metadata = reply.readTypedObject(KeyMetadata.CREATOR) ?: return TransactionResult.Skip
+                val originalChain = CertificateHelper.getCertificateChain(metadata)
+                if (originalChain != null && originalChain.size > 1) {
+                    val newChain = AttestationPatcher.patchCertificateChain(originalChain, uid)
+                    CertificateHelper.updateCertificateChain(uid, metadata, newChain).getOrThrow()
+                    metadata.authorizations = AttestationPatcher.patchAuthorizations(metadata.authorizations, uid)
+                    StateManager.cachePatchedChain(keyId, newChain)
+                    val levelBinder = android.system.keystore2.IKeystoreSecurityLevel.Stub.asInterface(originalBinder)
+                    StateManager.cacheTeeResponse(keyId, metadata, levelBinder)
+                    Logger.d("Cached patched chain + teeResponse for imported key alias=$alias")
+
+                    val override = Parcel.obtain()
+                    override.writeNoException()
+                    override.writeTypedObject(metadata, 0)
+                    return TransactionResult.OverrideReply(override)
+                }
+            } finally {
+                reply.setDataPosition(savedReplyPos)
             }
         } catch (_: Exception) {}
         return TransactionResult.Skip
@@ -296,9 +322,9 @@ class KeyMintInterceptor(
             Logger.d("createOperation for generated key alias=${entry.alias} nspace=${keyDescriptor.nspace} algo=${parsedParams.algorithm} purpose=${parsedParams.purpose.firstOrNull()} secLevel=$securityLevel")
 
             val operation = SoftwareOperation(txId, entry.keyPair, entry.secretKey, parsedParams, securityLevel, uid)
-            val opLimit = StateManager.getOpLimit(securityLevel)
-            if (StateManager.countActiveOps(uid) >= opLimit) {
-                Logger.w("createOperation: op limit reached uid=$uid active=${StateManager.countActiveOps(uid)} max=$opLimit secLev=$securityLevel")
+            if (securityLevel == android.hardware.security.keymint.SecurityLevel.STRONGBOX &&
+                StateManager.countActiveOps(uid) >= StateManager.getOpLimit(securityLevel)) {
+                Logger.w("createOperation: StrongBox op limit reached uid=$uid active=${StateManager.countActiveOps(uid)}")
                 return replyKeymintError(-29) ?: TransactionResult.Skip
             }
             StateManager.acquireOp(uid, operation, securityLevel)
@@ -588,7 +614,7 @@ class KeyMintInterceptor(
         uid: Int,
         startNanos: Long,
     ): TransactionResult? {
-        Logger.w("tryGenerateAttestKey: uid=$uid alias=${descriptor.alias} algo=${params.algorithm} ecCurve=${params.ecCurve}")
+        Logger.d("tryGenerateAttestKey algo=${params.algorithm} uid=$uid")
 
         val keyPair = CertificateBuilder.generateKeyPair(params)
         if (keyPair == null) {
