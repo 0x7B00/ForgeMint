@@ -631,6 +631,19 @@ class KeyMintInterceptor(
             return null
         }
 
+        val keybox = KeyboxReader.loadKeybox(params.algorithm)
+        val chain = when {
+            keybox != null && keybox.certificates.isNotEmpty() ->
+                CertificateBuilder.generateCertificateChain(keyPair, keybox, params, uid, securityLevel)
+            keybox != null && ConfigManager.isFallbackEnabled ->
+                CertificateBuilder.generateFallbackChain(keyPair, params, uid, securityLevel)
+            else -> {
+                Logger.w("no keybox configured for attest key, falling back to HAL")
+                null
+            }
+        }
+        if (chain == null) return null
+
         val nspace = SecureRandom().nextLong()
         val keyDescriptor = KeyDescriptor().apply {
             domain = Domain.KEY_ID
@@ -644,8 +657,10 @@ class KeyMintInterceptor(
                 key = keyDescriptor
                 modificationTimeMs = System.currentTimeMillis()
                 authorizations = buildAuthorizations(params, uid)
-                certificate = null
-                certificateChain = null
+                certificate = chain[0].encoded
+                certificateChain = if (chain.size > 1) {
+                    chain.drop(1).flatMap { it.encoded.toList() }.toByteArray()
+                } else null
             }
             p.writeTypedObject(m, 0)
             p.setDataPosition(0)
@@ -662,7 +677,7 @@ class KeyMintInterceptor(
             keyPair = keyPair,
             securityLevel = securityLevel,
             securityLevelBinder = android.system.keystore2.IKeystoreSecurityLevel.Stub.asInterface(originalBinder),
-            certChain = emptyList(),
+            certChain = chain.map { it as X509Certificate },
         ))
 
         val override = Parcel.obtain()
